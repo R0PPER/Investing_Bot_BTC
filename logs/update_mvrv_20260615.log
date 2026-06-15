@@ -1,0 +1,5 @@
+2026-06-15 14:04:53,789 [INFO] === update_mvrv.py === UTC=2026-06-15 11:04
+2026-06-15 14:04:53,798 [INFO] Existing records: 1460 — latest=2026-06-14
+2026-06-15 14:04:53,799 [INFO] Fetching latest MVRV from API...
+2026-06-15 14:04:55,349 [INFO] API key #1 OK — latest=2026-06-14
+2026-06-15 14:04:55,351 [WARNING] Today's MVRV not yet available — API latest=2026-06-14

@@ -1,0 +1,33 @@
+{
+  "position": 0,
+  "entry_price": 0.0,
+  "entry_date": null,
+  "entry_value": 0.0,
+  "entry_qty": 0.0,
+  "entry_fee": 0.0,
+  "entry_balance": 0.0,
+  "qty": 0.0,
+  "stop_price": 0.0,
+  "leverage": 1.0,
+  "current_long_has_partials": false,
+  "last_partial_sell_date": null,
+  "partial_sells": [],
+  "capital": 10000.0,
+  "mvrv_factor_override": false,
+  "mvrv_override_start_date": null,
+  "leverage_next_long": false,
+  "last_run_date": "2026-06-15T10:55:00.129607",
+  "last_action": "NO_ACTION",
+  "last_action_date": "2026-06-15T10:55:00.129519",
+  "total_trades": 0,
+  "total_pnl": 0.0,
+  "action_log": [
+    {
+      "date": "2026-06-15T10:55:00.129508",
+      "action": "NO_ACTION",
+      "details": "BTC=$65,853",
+      "capital": 10000.0,
+      "position": 0
+    }
+  ]
+}
