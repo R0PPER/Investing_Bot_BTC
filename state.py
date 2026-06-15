@@ -19,7 +19,8 @@ def init_firebase():
         cred_path = os.getenv("FIREBASE_CREDENTIALS_PATH", "firebase_creds.json")
         cred = credentials.Certificate(cred_path)
         firebase_admin.initialize_app(cred, {
-            'databaseURL': 'https://btc-trading-bot-default-rtdb.europe-west1.firebasedatabase.app/'
+            'databaseURL': 'https://btc-trading-bot-e28b6-default-rtdb.europe-west1.firebasedatabase.app/'
+            
         })
         logger.info("Firebase initialized")
 
