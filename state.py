@@ -1,24 +1,27 @@
 """
-state.py
-Persistent state για το bot — αποθηκεύεται σε state.json.
-Επιβιώνει reboots, crashes, updates.
-
-Περιέχει:
-  - Ανοιχτή θέση (position, entry, qty, partials κλπ)
-  - Capital
-  - Flags (mvrv_factor_override, leverage_next_long)
-  - Trade history summary
+state.py - Firebase version
+Persistent state στο Firebase Realtime Database.
 """
 
 import json
 import logging
-from pathlib import Path
+import firebase_admin
+from firebase_admin import credentials, db
 from datetime import datetime, date
+import os
 
 logger = logging.getLogger("btc_bot.state")
 
-STATE_FILE = Path(__file__).parent / "state.json"
-
+# ── Firebase Initialization ──────────────────────────────────────────
+def init_firebase():
+    """Αρχικοποιεί Firebase αν δεν έχει γίνει ήδη."""
+    if not firebase_admin._apps:
+        cred_path = os.getenv("FIREBASE_CREDENTIALS_PATH", "firebase_creds.json")
+        cred = credentials.Certificate(cred_path)
+        firebase_admin.initialize_app(cred, {
+            'databaseURL': 'https://btc-trading-bot-default-rtdb.europe-west1.firebasedatabase.app/'
+        })
+        logger.info("Firebase initialized")
 
 def _serialize(obj):
     """JSON serializer για dates/datetimes."""
@@ -26,9 +29,10 @@ def _serialize(obj):
         return obj.isoformat()
     raise TypeError(f"Object of type {type(obj)} is not JSON serializable")
 
-
 def _deserialize(d: dict) -> dict:
-    """Μετατρέπει ISO strings πίσω σε datetime όπου χρειάζεται."""
+    """Μετατρέπει ISO strings πίσω σε datetime."""
+    if not d:
+        return {}
     date_fields = ["entry_date", "last_partial_sell_date", "mvrv_override_start_date",
                    "last_run_date", "last_action_date"]
     for f in date_fields:
@@ -47,84 +51,79 @@ def _deserialize(d: dict) -> dict:
                     pass
     return d
 
-
 DEFAULT_STATE = {
-    # ── Position ──────────────────────────────────────────────────────
-    "position":                0,       # 0=flat | 1=long | -1=short
-    "entry_price":             0.0,
-    "entry_date":              None,
-    "entry_value":             0.0,
-    "entry_qty":               0.0,
-    "entry_fee":               0.0,
-    "entry_balance":           0.0,
-    "qty":                     0.0,     # remaining qty (after partial sells)
-    "stop_price":              0.0,
-    "leverage":                1.0,
-
-    # ── Partial sells tracking ────────────────────────────────────────
+    "position": 0,
+    "entry_price": 0.0,
+    "entry_date": None,
+    "entry_value": 0.0,
+    "entry_qty": 0.0,
+    "entry_fee": 0.0,
+    "entry_balance": 0.0,
+    "qty": 0.0,
+    "stop_price": 0.0,
+    "leverage": 1.0,
     "current_long_has_partials": False,
-    "last_partial_sell_date":    None,
-    "partial_sells":             [],    # list of {date, price, qty_sold, pct_sold, pnl}
-
-    # ── Capital ───────────────────────────────────────────────────────
-    "capital":                 10000.0,
-
-    # ── MVRV / Leverage overrides ─────────────────────────────────────
-    "mvrv_factor_override":    False,
+    "last_partial_sell_date": None,
+    "partial_sells": [],
+    "capital": 10000.0,
+    "mvrv_factor_override": False,
     "mvrv_override_start_date": None,
-    "leverage_next_long":      False,
-
-    # ── Run metadata ──────────────────────────────────────────────────
-    "last_run_date":           None,
-    "last_action":             "NONE",
-    "last_action_date":        None,
-    "total_trades":            0,
-    "total_pnl":               0.0,
-
-    # ── Audit log (last 30 actions) ───────────────────────────────────
-    "action_log":              [],
+    "leverage_next_long": False,
+    "last_run_date": None,
+    "last_action": "NONE",
+    "last_action_date": None,
+    "total_trades": 0,
+    "total_pnl": 0.0,
+    "action_log": [],
 }
 
-
 def load() -> dict:
-    """Φορτώνει το state από αρχείο. Αν δεν υπάρχει, επιστρέφει default."""
-    if not STATE_FILE.exists():
-        logger.info("No state file found — using default state")
+    """Φορτώνει το state από Firebase."""
+    init_firebase()
+    ref = db.reference('/bot_state')
+    raw = ref.get()
+    
+    if not raw:
+        logger.info("No state in Firebase — using default")
         return dict(DEFAULT_STATE)
-
-    try:
-        with open(STATE_FILE, "r") as f:
-            raw = json.load(f)
-        state = {**DEFAULT_STATE, **raw}   # merge με defaults για νέα πεδία
-        state = _deserialize(state)
-        logger.info(f"State loaded — position={state['position']} capital=${state['capital']:,.2f}")
-        return state
-    except Exception as e:
-        logger.error(f"State load error: {e} — using default state")
-        return dict(DEFAULT_STATE)
-
+    
+    state = {**DEFAULT_STATE, **raw}
+    state = _deserialize(state)
+    logger.info(f"State loaded from Firebase — position={state.get('position',0)} capital=${state.get('capital',0):,.2f}")
+    return state
 
 def save(state: dict) -> bool:
-    """Αποθηκεύει το state στο αρχείο. Επιστρέφει True αν πέτυχε."""
-    # Atomic write: γράφει σε temp file και μετά rename
-    tmp = STATE_FILE.with_suffix(".tmp")
+    """Αποθηκεύει το state στο Firebase."""
+    init_firebase()
+    
+    # Κάνουμε copy για να μην αλλάξουμε το original
+    to_save = dict(state)
+    
+    # Convert datetime objects σε strings για JSON
+    date_fields = ["entry_date", "last_partial_sell_date", "mvrv_override_start_date",
+                   "last_run_date", "last_action_date"]
+    for f in date_fields:
+        if f in to_save and to_save[f] is not None:
+            if isinstance(to_save[f], (datetime, date)):
+                to_save[f] = to_save[f].isoformat()
+    
+    if "partial_sells" in to_save:
+        for ps in to_save["partial_sells"]:
+            if "date" in ps and isinstance(ps["date"], (datetime, date)):
+                ps["date"] = ps["date"].isoformat()
+    
+    # Αποθήκευση στο Firebase
     try:
-        with open(tmp, "w") as f:
-            json.dump(state, f, indent=2, default=_serialize)
-        tmp.rename(STATE_FILE)
-        logger.debug("State saved")
+        ref = db.reference('/bot_state')
+        ref.set(to_save)
+        logger.debug("State saved to Firebase")
         return True
     except Exception as e:
-        logger.error(f"State save error: {e}")
-        try:
-            tmp.unlink(missing_ok=True)
-        except Exception:
-            pass
+        logger.error(f"Firebase save error: {e}")
         return False
 
-
 def log_action(state: dict, action: str, details: str = "") -> None:
-    """Προσθέτει action στο audit log (διατηρεί τα τελευταία 90)."""
+    """Προσθέτει action στο audit log."""
     entry = {
         "date": datetime.utcnow().isoformat(),
         "action": action,
@@ -134,22 +133,21 @@ def log_action(state: dict, action: str, details: str = "") -> None:
     }
     log = state.get("action_log", [])
     log.append(entry)
-    state["action_log"] = log[-90:]   # κρατά τα 90 τελευταία
-    state["last_action"]      = action
+    state["action_log"] = log[-90:]  # κρατά τα 90 τελευταία
+    state["last_action"] = action
     state["last_action_date"] = datetime.utcnow()
 
-
 def reset(confirm: bool = False) -> None:
-    """Reset state — ΜΟΝΟ για testing. Απαιτεί confirm=True."""
+    """Reset state — απαιτεί confirm=True."""
     if not confirm:
         raise ValueError("Pass confirm=True to reset state")
-    if STATE_FILE.exists():
-        STATE_FILE.rename(STATE_FILE.with_suffix(".bak"))
-    logger.warning("State RESET — backup saved as state.bak")
-
+    init_firebase()
+    ref = db.reference('/bot_state')
+    ref.set(DEFAULT_STATE)
+    logger.warning("State RESET in Firebase")
 
 def summary(state: dict) -> str:
-    """Human-readable summary του τρέχοντος state."""
+    """Human-readable summary."""
     pos_map = {0: "FLAT", 1: "LONG", -1: "SHORT"}
     pos = pos_map.get(state.get("position", 0), "?")
     lines = [
@@ -163,8 +161,6 @@ def summary(state: dict) -> str:
             f"Qty remaining  : {state.get('qty', 0):.6f}",
             f"Stop Price     : ${state.get('stop_price', 0):,.0f}",
             f"Leverage       : {state.get('leverage', 1):.0f}x",
-            f"Has partials   : {state.get('current_long_has_partials', False)}",
-            f"Partial sells  : {len(state.get('partial_sells', []))}",
         ]
     lines += [
         f"MVRV override  : {state.get('mvrv_factor_override', False)}",
