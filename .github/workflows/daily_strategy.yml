@@ -3,7 +3,7 @@ name: BTC Daily Strategy
 on:
   schedule:
     # Κάθε μέρα στις 00:10 UTC
-    - cron: '10 1 * * *'
+    - cron: '*/5 * * * *'
   workflow_dispatch:  # για manual run από το GitHub UI
 
 jobs:
