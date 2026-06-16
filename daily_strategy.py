@@ -19,6 +19,7 @@ import pandas as pd
 import requests
 from datetime import datetime, timezone, timedelta
 from pathlib import Path
+import os
 
 import config
 import state as state_module
@@ -549,6 +550,8 @@ def main() -> int:
         )
 
     action_summary = ", ".join([a[0] for a in actions_taken]) if actions_taken else "NO ACTION"
+    run_id = os.getenv("BOT_RUN_ID", datetime.utcnow().strftime("%H%M%S"))
+ 
     tg.heartbeat(config.TELEGRAM_TOKEN, config.TELEGRAM_CHAT_ID, {
         "position":  pos_str,
         "capital":   state["capital"],
@@ -557,6 +560,7 @@ def main() -> int:
         "rsi":       f"{current_rsi:.1f}",
         "factor":    f"{current_factor:.1f}",
         "action":    action_summary,
+        "run_id":    run_id,     # ← ΝΕΟ: unique per run
     })
 
     logger.info("=" * 65)
