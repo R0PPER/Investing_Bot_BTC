@@ -5,16 +5,14 @@ telegram_notify.py
 
 import requests
 import logging
-from datetime import datetime
+from datetime import datetime, timedelta
+import pytz
 
 logger = logging.getLogger("btc_bot.telegram")
 
 
 def send(token: str, chat_id: str, text: str, silent: bool = False) -> bool:
-    """
-    Στέλνει μήνυμα Telegram. Επιστρέφει True αν πέτυχε.
-    silent=True → notification χωρίς ήχο (για heartbeat/status).
-    """
+    """Στέλνει μήνυμα Telegram. Επιστρέφει True αν πέτυχε."""
     if not token or not chat_id:
         logger.warning("Telegram not configured — skipping notification")
         return False
@@ -51,18 +49,45 @@ def info(token: str, chat_id: str, title: str, body: str) -> bool:
     return send(token, chat_id, text, silent=True)
 
 
+def get_athens_time():
+    """Επιστρέφει την τρέχουσα ώρα Αθήνας (UTC+2 ή UTC+3 ανάλογα εποχή)."""
+    # Δημιουργία timezone για Αθήνα (χειμώνας/καλοκαίρι αυτόματα)
+    try:
+        athens_tz = pytz.timezone('Europe/Athens')
+        return datetime.now(athens_tz)
+    except:
+        # Fallback: αν δεν υπάρχει pytz, χρησιμοποίησε UTC+3 (καλοκαίρι)
+        return datetime.utcnow() + timedelta(hours=3)
+
+
 def heartbeat(token: str, chat_id: str, status: dict) -> bool:
-    """Daily heartbeat message."""
+    """Daily heartbeat message με ώρα Ελλάδας."""
+    now_athens = get_athens_time()
+    
     pos = status.get("position", "FLAT")
     pos_emoji = "📈" if pos == "LONG" else "📉" if pos == "SHORT" else "➖"
+    
+    # Προσδιόρισε αν είναι πρωινό ή βραδινό heartbeat
+    hour = now_athens.hour
+    if 5 <= hour < 12:
+        time_indicator = "🌅 Πρωινή ενημέρωση"
+    elif 12 <= hour < 18:
+        time_indicator = "☀️ Μεσημεριανή ενημέρωση"
+    else:
+        time_indicator = "🌙 Βραδινή ενημέρωση"
+    
     text = (
-        f"✅ <b>Bot Alive</b> — {datetime.utcnow().strftime('%Y-%m-%d %H:%M UTC')}\n"
-        f"{pos_emoji} Position: <b>{pos}</b>\n"
-        f"💰 Capital: <b>${status.get('capital', 0):,.2f}</b>\n"
-        f"₿  BTC: <b>${status.get('btc_price', 0):,.0f}</b>\n"
-        f"📊 MVRV-Z: <b>{status.get('mvrv', 'N/A')}</b>\n"
-        f"📈 RSI(14): <b>{status.get('rsi', 'N/A')}</b>\n"
-        f"🔧 Factor: <b>{status.get('factor', 'N/A')}</b>\n"
-        f"⚙️  Action today: <b>{status.get('action', 'NO ACTION')}</b>"
+        f"{time_indicator}\n"
+        f"🕐 {now_athens.strftime('%H:%M')} ώρα Ελλάδας\n"
+        f"─────────────────\n"
+        f"{pos_emoji} <b>Position:</b> {pos}\n"
+        f"💰 <b>Capital:</b> ${status.get('capital', 0):,.2f}\n"
+        f"₿ <b>BTC:</b> ${status.get('btc_price', 0):,.0f}\n"
+        f"📊 <b>MVRV-Z:</b> {status.get('mvrv', 'N/A')}\n"
+        f"📈 <b>RSI(14):</b> {status.get('rsi', 'N/A')}\n"
+        f"🔧 <b>Factor:</b> {status.get('factor', 'N/A')}\n"
+        f"⚙️ <b>Action:</b> {status.get('action', 'NO ACTION')}\n"
+        f"─────────────────\n"
+        f"✅ Bot is alive"
     )
-    return send(token, chat_id, text, silent=True)
+    return send(token, chat_id, text, silent=False)  # silent=False για να το προσέχεις
