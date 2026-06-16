@@ -1,44 +1,96 @@
+# .github/workflows/btc_daily_strategy.yml
+#
+# ΔΙΟΡΘΩΣΕΙΣ vs παλιό:
+#  1. Προστέθηκε run_id env var για unique heartbeat
+#  2. Προστέθηκε on-failure Telegram notification
+#  3. Προστέθηκε explicit git pull πριν το strategy (παίρνει το νέο MVRV CSV)
+#  4. Timeout στο job (αν κολλήσει δεν μένει ανοιχτό για ώρες)
+#  5. Διορθώθηκε το schedule σχόλιο (UTC times)
+
 name: BTC Daily Strategy
 
 on:
   schedule:
-    # 04:10 Ελλάδα (καλοκαίρι) = 01:10 UTC
+    # 01:10 UTC = 04:10 Ελλάδα (καλοκαίρι UTC+3)
     - cron: '10 1 * * *'
-    # 09:00 Ελλάδα (καλοκαίρι) = 06:00 UTC
+    # 06:00 UTC = 09:00 Ελλάδα (καλοκαίρι UTC+3)
     - cron: '0 6 * * *'
   workflow_dispatch:
+    inputs:
+      dry_run:
+        description: 'Dry run (no state changes)'
+        required: false
+        default: 'false'
+        type: choice
+        options: ['true', 'false']
 
 jobs:
   run-strategy:
     runs-on: ubuntu-latest
-    
+    timeout-minutes: 10       # ← αν κολλήσει, kill μετά από 10 λεπτά
+
     steps:
       - name: Checkout code
         uses: actions/checkout@v4
-      
+        with:
+          # Πάρε πάντα την τελευταία έκδοση (με το νέο MVRV CSV από update job)
+          ref: main
+          fetch-depth: 1
+
       - name: Setup Python
         uses: actions/setup-python@v5
         with:
           python-version: '3.11'
-      
+          cache: 'pip'          # ← cache packages για ταχύτητα
+
       - name: Install dependencies
         run: |
           pip install --upgrade pip
           pip install -r requirements.txt
           pip install firebase-admin
-      
+
       - name: Create Firebase credentials file
         run: |
           echo '${{ secrets.FIREBASE_CREDENTIALS }}' > firebase_creds.json
-      
+
       - name: Run daily strategy
         env:
-          TELEGRAM_TOKEN: ${{ secrets.TELEGRAM_TOKEN }}
-          TELEGRAM_CHAT_ID: ${{ secrets.TELEGRAM_CHAT_ID }}
-          MVRV_API_KEY_1: ${{ secrets.MVRV_API_KEY_1 }}
-          MVRV_API_KEY_2: ${{ secrets.MVRV_API_KEY_2 }}
-          MVRV_API_KEY_3: ${{ secrets.MVRV_API_KEY_3 }}
+          TELEGRAM_TOKEN:           ${{ secrets.TELEGRAM_TOKEN }}
+          TELEGRAM_CHAT_ID:         ${{ secrets.TELEGRAM_CHAT_ID }}
+          MVRV_API_KEY_1:           ${{ secrets.MVRV_API_KEY_1 }}
+          MVRV_API_KEY_2:           ${{ secrets.MVRV_API_KEY_2 }}
+          MVRV_API_KEY_3:           ${{ secrets.MVRV_API_KEY_3 }}
           FIREBASE_CREDENTIALS_PATH: firebase_creds.json
-          DRY_RUN: 'false'
+          DRY_RUN:                  ${{ github.event.inputs.dry_run || 'false' }}
+          # ← Unique run ID για το heartbeat (αποφεύγει Telegram grouping)
+          BOT_RUN_ID:               ${{ github.run_id }}
         run: |
           python daily_strategy.py
+
+      # ── Αποστολή Telegram αν το job αποτύχει ──────────────────────
+      - name: Notify failure via Telegram
+        if: failure()
+        env:
+          TELEGRAM_TOKEN:   ${{ secrets.TELEGRAM_TOKEN }}
+          TELEGRAM_CHAT_ID: ${{ secrets.TELEGRAM_CHAT_ID }}
+        run: |
+          python - << 'PYEOF'
+          import os, requests
+          token   = os.environ["TELEGRAM_TOKEN"]
+          chat_id = os.environ["TELEGRAM_CHAT_ID"]
+          run_url = f"https://github.com/${{ github.repository }}/actions/runs/${{ github.run_id }}"
+          text = (
+              "🚨 <b>BTC Bot FAILED</b>\n"
+              f"Run: <a href='{run_url}'>#{run_url.split('/')[-1]}</a>\n"
+              "⚠️ Ελέγξε τα logs άμεσα!"
+          )
+          requests.post(
+              f"https://api.telegram.org/bot{token}/sendMessage",
+              json={"chat_id": chat_id, "text": text, "parse_mode": "HTML"},
+              timeout=10
+          )
+          PYEOF
+
+      - name: Cleanup credentials
+        if: always()
+        run: rm -f firebase_creds.json
